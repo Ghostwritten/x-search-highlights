@@ -1,6 +1,21 @@
-# Skill: x-search-highlights
+---
+name: x-search-highlights
+description: Search and extract high-value posts from X (Twitter) with engagement-based ranking. Use when user asks to search X, find best posts, get highlights from Twitter/X, or extract high-engagement content on a specific topic.
+---
+
+# X Search Highlights
 
 Search and extract high-value posts from X (Twitter) with engagement-based ranking.
+
+## Quick Start
+
+```bash
+# Basic search
+~/.openclaw/skills/x-search-highlights/scripts/x-search.sh "Claude Code"
+
+# With filters
+~/.openclaw/skills/x-search-highlights/scripts/x-search.sh "AI Agent" 10 5 1000 markdown
+```
 
 ## Description
 
@@ -51,191 +66,86 @@ Trigger phrases:
 
 ```json
 {
-  "topic": "Claude Code",
-  "totalFound": 20,
-  "returned": 5,
+  "total": 10,
   "posts": [
     {
       "text": "...",
-      "author": "@handle",
-      "date": "2026-04-01",
-      "likes": 1669,
-      "retweets": 408,
-      "views": 240000,
-      "url": "https://x.com/..."
+      "author": "...",
+      "likes": 1000,
+      "retweets": 200,
+      "views": 50000
     }
   ]
 }
 ```
 
-## Prerequisites
-
-- **bb-browser** installed and running (`npm install -g bb-browser@latest`)
-- X.com login state established in bb-browser profile
-- Chrome/Chromium browser available
-
 ## Workflow
 
-1. **Navigate to Search**: Open X search page with topic
-2. **Load Content**: Scroll multiple times to load candidate pool
-3. **Extract Data**: Parse posts using JavaScript (article elements)
-4. **Calculate Scores**: Weight engagement metrics (bookmarks highest, likes medium, views lowest)
-5. **Sort & Filter**: Remove low-engagement, sort by score
-6. **Format Output**: Return formatted results per outputFormat parameter
+1. **Open search page**: Navigate to X search with query
+2. **Load content**: Scroll N times to collect candidate posts
+3. **Extract data**: Parse DOM for post content and engagement metrics
+4. **Rank and filter**: Calculate engagement scores, apply filters
+5. **Format output**: Return results in requested format
 
-## Engagement Scoring Formula
+## Core Algorithm
 
+**Engagement Score:**
 ```
-Score = (bookmarks × 10) + (likes × 2) + (retweets × 5) + (views × 0.01)
-```
-
-**Why this weights:**
-- Bookmarks = strongest signal of value (user saves for later)
-- Retweets = reach indicator (user shares publicly)
-- Likes = approval signal (easy to give)
-- Views = reach but easily inflated
-
-## Technical Implementation
-
-### Core Extraction Script
-
-```javascript
-(function() {
-  const posts = document.querySelectorAll('article');
-  const results = [];
-  
-  const getNum = (el) => {
-    if (!el) return 0;
-    const aria = el.getAttribute('aria-label') || '';
-    const m = aria.match(/(\d+\.?\d*[KM]?)/i);
-    if (!m) return 0;
-    let n = m[1].toUpperCase();
-    if (n.includes('K')) return parseFloat(n) * 1000;
-    if (n.includes('M')) return parseFloat(n) * 1000000;
-    return parseInt(n);
-  };
-  
-  posts.forEach(p => {
-    const txt = p.querySelector('[data-testid="tweetText"]');
-    const tm = p.querySelector('time');
-    const au = p.querySelector('[data-testid="User-Name"]');
-    
-    if (!txt) return;
-    
-    results.push({
-      text: txt.innerText.trim(),
-      author: au ? au.innerText.split('\n')[0] : '',
-      handle: au ? (au.innerText.match(/@[\w]+/)?.[0] || '') : '',
-      date: tm ? tm.getAttribute('datetime') : '',
-      url: tm ? tm.closest('a')?.href : '',
-      replies: getNum(p.querySelector('button[aria-label*="Repl"]')),
-      retweets: getNum(p.querySelector('button[aria-label*=" repost"]')),
-      likes: getNum(p.querySelector('button[aria-label*="Like"]')),
-      views: getNum(p.querySelector('a[href*="/analytics"]'))
-    });
-  });
-  
-  // Sort by engagement score
-  results.sort((a,b) => {
-    const sA = (a.likes||0)*2 + (a.retweets||0)*5 + (a.views||0)*0.01;
-    const sB = (b.likes||0)*2 + (b.retweets||0)*5 + (b.views||0)*0.01;
-    return sB - sA;
-  });
-  
-  return JSON.stringify(results.slice(0, maxResults));
-})();
+Score = (likes × 2) + (retweets × 5) + (views × 0.01)
 ```
 
-### Execution Commands
-
-```bash
-# 1. Open search page
-bb-browser open "https://x.com/search?q=${TOPIC}&f=top"
-
-# 2. Scroll to load more
-for i in $(seq 1 $SCROLL_TIMES); do
-  bb-browser eval 'window.scrollTo(0, document.body.scrollHeight);'
-  sleep 2
-done
-
-# 3. Extract and parse
-bb-browser eval "$EXTRACT_SCRIPT" --json
-```
-
-## Safety Guidelines
-
-- **Rate Limit**: Avoid excessive scrolling (max 10 iterations)
-- **Delay**: Add 2-3 second delays between operations
-- **Session State**: Requires existing X login (don't re-login each time)
-- **Profile**: Uses bb-browser profile (~/.bb-browser/browser/user-data)
-
-## Limitations
-
-- X lazy loading limits initial results (3-10 posts visible)
-- Engagement data may not include bookmarks (X API limitation)
-- Some posts may be rate-limited or shadow-banned (won't appear)
-- Search quality depends on X algorithm (may miss older posts)
-
-## Example Usage
-
-### Basic Search
-
-```
-User: "Search X for Claude Code best posts"
-
-Assistant activates x-search-highlights:
-- topic: "Claude Code"
-- maxResults: 5
-- sortBy: "engagement"
-
-Output: 5 formatted posts with engagement data
-```
-
-### Filtered Search
-
-```
-User: "Find AI Agent posts with at least 1000 likes"
-
-Parameters:
-- topic: "AI Agent"
-- minLikes: 1000
-- maxResults: 10
-```
-
-### JSON Output
-
-```
-User: "Get JSON data for RAG posts"
-
-Parameters:
-- topic: "RAG"
-- outputFormat: "json"
-- maxResults: 20
-```
-
-## Error Handling
-
-| Error | Cause | Solution |
-|-------|-------|----------|
-| "Daemon did not start" | bb-browser not running | Run `bb-browser open` first |
-| "No articles found" | Page not loaded or no results | Check topic spelling, scroll more |
-| "Login required" | No X login state | User must login first via bb-browser |
-| "Rate limited" | Too many requests | Add delays, reduce scrollTimes |
+**Weight Rationale:**
+- Retweets (×5): Strongest signal (public sharing)
+- Likes (×2): Approval signal (low barrier)
+- Views (×0.01): Reach indicator (easily inflated)
 
 ## Dependencies
 
 - `bb-browser` ≥ 0.11.2
 - Chrome/Chromium browser
-- X.com account (logged in)
+- X.com login state (in bb-browser profile)
 
-## Version
+## Installation
 
-- Created: 2026-04-05
-- Version: 1.0.0
-- Author: Platform Admin (based on actual task execution)
+```bash
+# Via ClawHub (after publishing)
+clawhub install x-search-highlights
 
-## Related Skills
+# Or clone from GitHub
+git clone https://github.com/Ghostwritten/x-search-highlights.git ~/.openclaw/skills/x-search-highlights
+```
 
-- `browser` - OpenClaw native browser control
-- `web-search` - DuckDuckGo search (no login needed)
-- `web-fetch` - Extract content from URLs
+## Usage Examples
+
+```bash
+# Search for "OpenClaw"
+scripts/x-search.sh "OpenClaw"
+
+# Get 10 posts with min 1000 likes
+scripts/x-search.sh "AI Agent" 10 3 1000
+
+# JSON output
+scripts/x-search.sh "RAG" 20 5 0 json
+```
+
+## Troubleshooting
+
+**No posts found:**
+- Check bb-browser is running: `bb-browser status`
+- Verify X.com login state
+- Try different search keywords
+
+**JSON parsing errors:**
+- Ensure `bb-browser` version ≥ 0.11.2
+- Check Chrome/Chromium is accessible
+
+**Rate limits:**
+- Reduce `scrollTimes` parameter
+- Add delays between operations
+
+## Limitations
+
+- X lazy loading limits initial results
+- Bookmark data not available via scraping
+- Rate limits may affect large-scale scraping
+- Search quality depends on X algorithm
